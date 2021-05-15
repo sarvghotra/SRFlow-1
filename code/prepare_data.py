@@ -46,10 +46,10 @@ from imresize import imresize
 def random_crop(img, size):
     h, w, c = img.shape
 
-    h_start = np.random.randint(0, h - size)
+    h_start = random.randint(0, h - size - 1)
     h_end = h_start + size
 
-    w_start = np.random.randint(0, w - size)
+    w_start = random.randint(0, w - size - 1)
     w_end = w_start + size
 
     return img[h_start:h_end, w_start:w_end]
