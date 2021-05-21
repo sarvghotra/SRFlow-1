@@ -48,7 +48,7 @@ class SRModel(BaseModel):
         else:
             self.netG = DataParallel(self.netG)
         # print network
-        self.print_network()
+        #self.print_network()
         self.load()
 
         if self.is_train:

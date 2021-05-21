@@ -52,7 +52,7 @@ class SRFlowModel(BaseModel):
         else:
             self.netG = DataParallel(self.netG)
         # print network
-        self.print_network()
+        #self.print_network()
 
         if opt_get(opt, ['path', 'resume_state'], 1) is not None:
             self.load()
