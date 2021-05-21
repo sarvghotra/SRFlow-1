@@ -90,7 +90,7 @@ class LRHR_PKLDataset(data.Dataset):
             assert hr.shape[1] == self.scale * lr.shape[1], ('non-fractional ratio', lr.shape, hr.shape)
 
         if self.use_crop:
-            hr, lr = random_crop(hr, lr, self.crop_size, self.scale, self.use_crop)
+            hr, lr = random_crop(hr, lr, self.crop_size, self.scale)
 
         if self.center_crop_hr_size:
             hr, lr = center_crop(hr, self.center_crop_hr_size), center_crop(lr, self.center_crop_hr_size // self.scale)
@@ -144,7 +144,7 @@ def random_rotation(img, seg):
     return img, seg
 
 
-def random_crop(hr, lr, size_hr, scale, random):
+def random_crop(hr, lr, size_hr, scale):
     size_lr = size_hr // scale
 
     size_lr_x = lr.shape[1]
