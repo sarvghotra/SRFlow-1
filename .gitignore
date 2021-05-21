@@ -7,7 +7,7 @@ __MACOSX/
 
 datasets/
 
-data/
+#data/
 myenv/
 .idea
 checkpoints/
