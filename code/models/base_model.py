@@ -93,6 +93,7 @@ class BaseModel():
         return s, n
 
     def save_network(self, network, network_label, iter_label):
+        '''
         paths = natsort.natsorted(glob.glob(os.path.join(self.opt['path']['models'], "*_{}.pth".format(network_label))),
                                   reverse=True)
         paths = [p for p in paths if
@@ -100,8 +101,9 @@ class BaseModel():
         if len(paths) > 2:
             for path in paths[2:]:
                 os.remove(path)
+        '''
         save_filename = '{}_{}.pth'.format(iter_label, network_label)
-        save_path = os.path.join(self.opt['path']['models'], save_filename)
+        save_path = os.path.join(self.opt['path']['save_models'], save_filename)
         if isinstance(network, nn.DataParallel) or isinstance(network, DistributedDataParallel):
             network = network.module
         state_dict = network.state_dict()
