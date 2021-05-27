@@ -172,3 +172,7 @@ def opt_get(opt, keys, default=None):
             return default
     return ret
 
+
+def rgb(t): return (
+        np.clip((t[0] if len(t.shape) == 4 else t).detach().cpu().numpy().transpose([1, 2, 0]), 0, 1) * 255).astype(
+    np.uint8)
