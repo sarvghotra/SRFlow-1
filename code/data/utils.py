@@ -237,3 +237,6 @@ def convertDouble2Byte(I):
     B = 255*B
     return np.around(B).astype(np.uint8)
 
+
+def impad(img, top=0, bottom=0, left=0, right=0, color=255):
+    return np.pad(img, [(top, bottom), (left, right), (0, 0)], 'reflect')
