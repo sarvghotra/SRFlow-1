@@ -5,7 +5,8 @@ import numpy as np
 import time
 import torch
 import random
-
+import skimage
+import math
 
 from data import utils
 from data.LRHR_PKL_dataset import random_flip, \
@@ -16,8 +17,9 @@ class LRHRDataset(data.Dataset):
     def __init__(self, opt):
         super(LRHRDataset, self).__init__()
         self.opt = opt
+        self.phase = opt["name"]
         self.crop_size = opt.get("GT_size", None)
-        self.scale = opt.get("scale"); print("############### scale: ", self.scale)
+        self.scale = opt.get("scale")
         self.random_scale_list = [1]
 
         hr_file_path = opt["dataroot_GT"]
@@ -25,8 +27,6 @@ class LRHRDataset(data.Dataset):
         y_labels_file_path = opt['dataroot_y_labels']
 
         gpu = True
-        augment = True
-
         self.augment = opt["augment"] if "augment" in opt.keys() else False
         self.use_crop = opt["use_crop"] if "use_crop" in opt.keys() else False
         self.center_crop_hr_size = opt.get("center_crop_hr_size", None)
@@ -52,7 +52,8 @@ class LRHRDataset(data.Dataset):
         print("Loaded {} HR images".format(len(self.hr_images)))
 
         self.gpu = gpu
-        self.augment = augment
+        self.rand_gauss_var = opt["gauss_noise_var"]
+        print("rand gauss var: ", self.rand_gauss_var)
 
         self.measures = None
         self.i = 0
@@ -75,9 +76,10 @@ class LRHRDataset(data.Dataset):
 
         # make hr shape multiple of scale
         h, w = hr.shape[:2]
-        rescale_h = h // self.scale
-        rescale_w = w // self.scale
-        hr = hr[:rescale_h * self.scale, :rescale_w * self.scale, :]
+        rescale_h = h // (self.scale * 2)
+        rescale_w = w // (self.scale * 2)
+        # extra 2 because LR needs to be even
+        hr = hr[:rescale_h * self.scale * 2, :rescale_w * self.scale * 2, :]
 
         # Check if LR is already given
         if self.lr_images:
@@ -87,7 +89,7 @@ class LRHRDataset(data.Dataset):
 
         # Create LR image on the fly from HR
         lr = self._lr_img_from_hr(hr)
-        return hr, lr
+        return hr, lr, hr_path
 
     def to_tensor(self, array):
         return torch.Tensor(array)
@@ -97,19 +99,29 @@ class LRHRDataset(data.Dataset):
         return (np.clip((t[0] if len(t.shape) == 4 else t).detach().cpu().numpy().transpose([1, 2, 0]), 0, 1) * 255).astype(np.uint8)
 
     def __getitem__(self, item):
-        hr, lr = self._get_hr_lr_img(item)
+        hr, lr, path = self._get_hr_lr_img(item)
 
         if self.scale == None:
             self.scale = hr.shape[1] // lr.shape[1]
-            assert hr.shape[1] == self.scale * lr.shape[1], ('non-fractional ratio', lr.shape, hr.shape)
 
-        if self.use_crop:
+        assert hr.shape[1] == self.scale * lr.shape[1], ('non-fractional ratio', lr.shape, hr.shape)
+
+        if self.phase == "train" and self.use_crop:
             hr, lr = random_crop(hr, lr, self.crop_size, self.scale)
 
         #if self.center_crop_hr_size:
         #    hr, lr = center_crop(hr, self.center_crop_hr_size), center_crop(lr, self.center_crop_hr_size // self.scale)
 
-        if self.augment:
+        #if self.phase != "train" and self.opt['save_imgs']:
+        # Pad image to be % 2
+        '''
+        pad_factor = 2
+        h, w, c = lr.shape
+        lr = utils.impad(lr, bottom=int(np.ceil(h / pad_factor) * pad_factor - h),
+                right=int(np.ceil(w / pad_factor) * pad_factor - w))
+        '''
+
+        if self.phase == "train" and self.augment:
             hr, lr = utils.augment([hr, lr])
 
         hr = hr / 255.0
@@ -123,11 +135,16 @@ class LRHRDataset(data.Dataset):
             self.measures['lr_means'] = np.mean(lr)
             self.measures['lr_stds'] = np.std(lr)
 
+        #if self.rand_gauss_var is not None:
+        if self.phase == "train":
+            hr = self.add_rand_gauss_noise(hr)
+
         # HWC to CHW
         hr = np.ascontiguousarray(hr.transpose([2, 0, 1])).astype(np.float32)
         lr = np.ascontiguousarray(lr.transpose([2, 0, 1])).astype(np.float32)
         hr = self.to_tensor(hr)   #torch.Tensor(hr)
         lr = self.to_tensor(lr)   #torch.Tensor(lr)
+
 
         '''
         # FIXME: remove it, temp
@@ -139,9 +156,10 @@ class LRHRDataset(data.Dataset):
         utils.save_img(lr_img, save_path)
         save_path = "/tmp/imgs/" + str(item) + "_hr.png"
         utils.save_img(hr_img, save_path)
+        print("Saved")
         '''
 
-        return {'LQ': lr, 'GT': hr, 'LQ_path': str(item), 'GT_path': str(item)}
+        return {'LQ': lr, 'GT': hr, 'LQ_path': path, 'GT_path': path}
 
     def print_and_reset(self, tag):
         m = self.measures
@@ -150,6 +168,15 @@ class LRHRDataset(data.Dataset):
             kvs.append("{}={:.2f}".format(k, m[k]))
         print("[KPI] " + tag + ": " + ", ".join(kvs))
         self.measures = None
+
+    def add_rand_gauss_noise(self, img):
+        img = skimage.util.random_noise(img, mode='gaussian',
+                                        var=self.rand_gauss_var,
+                                        seed=random.randint(0, 50000)
+                                        )
+        img = np.float32(img)
+        img = np.clip(img, 0, 1)
+        return img
 
 
 def random_crop(hr, lr, patch_size, scale):

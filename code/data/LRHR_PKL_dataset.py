@@ -34,6 +34,7 @@ class LRHR_PKLDataset(data.Dataset):
         self.random_scale_list = [1]
 
         hr_file_path = opt["dataroot_GT"]
+        self.hr_file_p = hr_file_path
         lr_file_path = opt["dataroot_LQ"]
         y_labels_file_path = opt['dataroot_y_labels']
 
@@ -114,6 +115,8 @@ class LRHR_PKLDataset(data.Dataset):
 
         hr = torch.Tensor(hr)
         lr = torch.Tensor(lr)
+
+        #print(self.hr_file_p, " ", "pkl: ", hr.shape, " ", lr.shape)
 
         # if self.gpu:
         #    hr = hr.cuda()

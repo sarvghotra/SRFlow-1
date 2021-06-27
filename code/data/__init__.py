@@ -39,7 +39,9 @@ def create_dataloader(dataset, dataset_opt, opt=None, sampler=None):
 def create_dataset(dataset_opt):
     print(dataset_opt)
     mode = dataset_opt['mode']
-    if mode == 'LRHR_PKL':
+    if mode == 'LR':
+        from data.LR_dataset import LRDataset as D
+    elif mode == 'LRHR_PKL':
         from data.LRHR_PKL_dataset import LRHR_PKLDataset as D
     elif mode == 'LRHR':
         from data.LRHR_dataset import LRHRDataset as D

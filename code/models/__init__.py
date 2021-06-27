@@ -37,8 +37,10 @@ def find_model_using_name(model_name):
 
 
 def create_model(opt, step=0, **opt_kwargs):
+    '''
     if local_config is not None:
         opt['path']['pretrain_model_G'] = os.path.join(local_config.checkpoint_path, os.path.basename(opt['path']['results_root'] + '.pth'))
+    '''
 
     for k, v in opt_kwargs.items():
         opt[k] = v

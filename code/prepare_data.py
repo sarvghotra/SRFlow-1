@@ -22,6 +22,7 @@ import imageio
 
 from natsort import natsort
 from tqdm import tqdm
+import pickle
 
 def get_img_paths(dir_path, wildcard='*.png'):
     return natsort.natsorted(glob.glob(dir_path + '/' + wildcard))
@@ -41,7 +42,7 @@ def to_pklv4(obj, path, vebose=False):
         print("Wrote {}".format(path))
 
 
-from imresize import imresize
+from data.utils import imresize
 
 def random_crop(img, size):
     h, w, c = img.shape
@@ -76,9 +77,9 @@ def main(dir_path):
     for img_path in tqdm(img_paths):
         img = imread(img_path)
 
-        for i in range(47):
+        for i in range(30):
             crop = random_crop(img, 160)
-            cropX4 = imresize(crop, scalar_scale=0.25)
+            cropX4 = imresize(crop, scalar_scale=1/scale)
             hrs.append(crop)
             lqs.append(cropX4)
 
@@ -116,4 +117,5 @@ def shuffle_combined(hrs, lqs):
 if __name__ == "__main__":
     dir_path = sys.argv[1]
     assert os.path.isdir(dir_path)
+    scale = 8
     main(dir_path)

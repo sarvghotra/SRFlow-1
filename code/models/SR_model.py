@@ -99,6 +99,7 @@ class SRModel(BaseModel):
                 raise NotImplementedError('MultiStepLR learning rate scheme is enough.')
 
             self.log_dict = OrderedDict()
+            print("No of params in G: ", self.count_parameters(self.netG))
 
     def feed_data(self, data, need_GT=True):
         self.var_L = data['LQ'].to(self.device)  # LQ

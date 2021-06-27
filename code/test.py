@@ -31,6 +31,7 @@ import numpy as np
 import pandas as pd
 import os
 import cv2
+from data import utils
 
 
 def fiFindByWildcard(wildcard):
@@ -122,9 +123,19 @@ def main():
     pad_factor = 2
 
     for lr_path, hr_path, idx_test in zip(lr_paths, hr_paths, range(len(lr_paths))):
-
+        # FIXME: revert it
+        lr_path = "/relevance-nfs/users/saghotra/datasets/img/benchmark/craw_1024/HR/val/1009671.png"
+        hr_path = "/relevance-nfs/users/saghotra/datasets/img/benchmark/craw_1024/HR/val/1009671.png"
         lr = imread(lr_path)
         hr = imread(hr_path)
+
+        # FIXME: revert it
+        # Bicubic downsample hr
+        h, w = hr.shape[:2]
+        rescale_h = h // scale
+        rescale_w = w // scale
+        print(h, " ", w, " ", rescale_h, " ", rescale_w)
+        lr = utils.imresize(hr, output_shape=(rescale_h, rescale_w))
 
         # Pad image to be % 2
         h, w, c = lr.shape
@@ -137,8 +148,10 @@ def main():
         heat = opt['heat']
 
         if df is not None and len(df[(df['heat'] == heat) & (df['name'] == idx_test)]) == 1:
+            print("continued")
             continue
 
+        print("lr_t: ", lr_t.shape)
         sr_t = model.get_sr(lq=lr_t, heat=heat)
 
         sr = rgb(torch.clamp(sr_t, 0, 1))
@@ -148,10 +161,10 @@ def main():
         imwrite(path_out_sr, sr)
 
         meas = OrderedDict(conf=conf, heat=heat, name=idx_test)
-        meas['PSNR'], meas['SSIM'], meas['LPIPS'] = measure.measure(sr, hr)
+        #meas['PSNR'], meas['SSIM'], meas['LPIPS'] = measure.measure(sr, hr)
 
         lr_reconstruct_rgb = imresize(sr, 1 / opt['scale'])
-        meas['LRC PSNR'] = psnr(lq_orig, lr_reconstruct_rgb)
+        #meas['LRC PSNR'] = psnr(lq_orig, lr_reconstruct_rgb)
 
         str_out = format_measurements(meas)
         print(str_out)
