@@ -82,6 +82,7 @@ def parse(opt_path, is_train=True):
         opt['network_G']['scale'] = scale
 
     # relative learning rate
+    '''
     if 'train' in opt:
         niter = opt['train']['niter']
         if 'T_period_rel' in opt['train']:
@@ -92,6 +93,9 @@ def parse(opt_path, is_train=True):
             opt['train']['lr_steps'] = [int(x * niter) for x in opt['train']['lr_steps_rel']]
         if 'lr_steps_inverse_rel' in opt['train']:
             opt['train']['lr_steps_inverse'] = [int(x * niter) for x in opt['train']['lr_steps_inverse_rel']]
+        print(opt['train'])
+    '''
+    if 'train' in opt:
         print(opt['train'])
 
     return opt

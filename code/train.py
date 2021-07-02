@@ -93,10 +93,11 @@ def main():
     #### mkdir and loggers
     if rank <= 0:  # normal training (rank -1) OR distributed training (rank 0)
         if resume_state is None:
-            util.mkdir_and_rename(
-                opt['path']['experiments_root'])  # rename experiment folder if exists
+            #util.mkdir_and_rename(
+            #    opt['path']['experiments_root'])  # rename experiment folder if exists
             util.mkdirs((path for key, path in opt['path'].items() if not key == 'experiments_root'
-                         and 'pretrain_model' not in key and 'resume' not in key))
+                         and 'pretrain_model' not in key and 'resume' not in key
+                         and 'strict_load' not in key))
 
         # config loggers. Before it, the log will not work
         util.setup_logger('base', opt['path']['log'], 'train_' + opt['name'], level=logging.INFO,
@@ -150,9 +151,15 @@ def main():
             train_set = create_dataset(dataset_opt)
             print('Dataset created')
             train_size = int(math.ceil(len(train_set) / dataset_opt['batch_size']))
+
+            #total_epochs = int(math.ceil(total_iters / train_size))
+            total_epochs = int(opt['train']['epoch'])
+            opt['train']['niter'] = total_epochs * train_size
             total_iters = int(opt['train']['niter'])
-            total_epochs = int(math.ceil(total_iters / train_size))
-            train_sampler = None
+            if opt['dist']:
+                train_sampler = DistributedSampler(train_set)
+            else:
+                train_sampler = None
             train_loader = create_dataloader(train_set, dataset_opt, opt, train_sampler)
             if rank <= 0:
                 logger.info('Number of train images: {:,d}, iters: {:,d}'.format(
@@ -168,6 +175,18 @@ def main():
                     dataset_opt['name'], len(val_set)))
 
     assert train_loader is not None
+
+    # relative learning rate
+    if 'train' in opt:
+        niter = opt['train']['niter']
+        if 'T_period_rel' in opt['train']:
+            opt['train']['T_period'] = [int(x * niter) for x in opt['train']['T_period_rel']]
+        if 'restarts_rel' in opt['train']:
+            opt['train']['restarts'] = [int(x * niter) for x in opt['train']['restarts_rel']]
+        if 'lr_steps_rel' in opt['train']:
+            opt['train']['lr_steps'] = [int(x * niter) for x in opt['train']['lr_steps_rel']]
+        if 'lr_steps_inverse_rel' in opt['train']:
+            opt['train']['lr_steps_inverse'] = [int(x * niter) for x in opt['train']['lr_steps_inverse_rel']]
 
     #### create model
     current_step = 0 if resume_state is None else resume_state['iter']
@@ -220,7 +239,7 @@ def main():
             def eta(t_iter):
                 return (t_iter * (opt['train']['niter'] - current_step)) / 3600
 
-            if current_step % opt['logger']['print_freq'] == 0 or current_step == 1:
+            if current_step % opt['logger']['print_freq'] == 0 and rank <= 0:
                 avg_time = timer.get_average_and_reset()
                 avg_data_time = timerData.get_average_and_reset()
                 message = '<epoch:{:3d}, iter:{:8,d}, lr:{:.3e}, t:{:.2e}, td:{:.2e}, eta:{:.2e}, nll:{:.3e}> '.format(
