@@ -35,6 +35,7 @@ class LRHRDataset(data.Dataset):
         self.lr_images = None
         if lr_file_path is not None:
             self.lr_images = utils.get_paths_from_images(lr_file_path)
+            print("{} Loaded {} LR images".format(self.phase, len(self.lr_images)))
 
         self.hr_images = utils.get_paths_from_images(hr_file_path)
 
@@ -49,7 +50,7 @@ class LRHRDataset(data.Dataset):
         #      format(len(self.hr_images), min_val_hr, max_val_hr, t, hr_file_path))
         #print("Loaded {} LR images with [{:.2f}, {:.2f}] in {:.2f}s from {}".
         #      format(len(self.lr_images), min_val_lr, max_val_lr, t, lr_file_path))
-        print("Loaded {} HR images".format(len(self.hr_images)))
+        print("{} Loaded {} HR images".format(self.phase, len(self.hr_images)))
 
         self.gpu = gpu
         self.rand_gauss_var = opt["gauss_noise_var"]
@@ -85,7 +86,7 @@ class LRHRDataset(data.Dataset):
         if self.lr_images:
             lr_path = self.lr_images[item]
             lr = utils.img_loader(lr_path)
-            return hr, lr
+            return hr, lr, ""
 
         # Create LR image on the fly from HR
         lr = self._lr_img_from_hr(hr)
@@ -104,7 +105,7 @@ class LRHRDataset(data.Dataset):
         if self.scale == None:
             self.scale = hr.shape[1] // lr.shape[1]
 
-        assert hr.shape[1] == self.scale * lr.shape[1], ('non-fractional ratio', lr.shape, hr.shape)
+        assert hr.shape[1] == self.scale * lr.shape[1], ('non-fractional ratio', lr.shape, hr.shape, self.phase)
 
         if self.phase == "train" and self.use_crop:
             hr, lr = random_crop(hr, lr, self.crop_size, self.scale)
