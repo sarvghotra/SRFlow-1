@@ -209,190 +209,115 @@ def main():
     logger.info('Start training from epoch: {:d}, iter: {:d}'.format(start_epoch, current_step))
     timerData = TickTock()
 
-    for epoch in range(start_epoch, total_epochs + 1):
-        if opt['dist']:
-            train_sampler.set_epoch(epoch)
+    with torch.profiler.profile(
+        schedule = torch.profiler.schedule(wait=40, warmup=40, active=40, repeat=1),
+        on_trace_ready=torch.profiler.tensorboard_trace_handler('/vc_data_1/users/saghotra/models/sup_res/srflow/perf_tb_logs/sf_50k_40'),
+        record_shapes=False,
+        with_stack=False
+    ) as prof:
 
-        timerData.tick()
-        for _, train_data in enumerate(train_loader):
-            timerData.tock()
-            current_step += 1
-            if current_step > total_iters:
-                break
+        for epoch in range(start_epoch, total_epochs + 1):
+            if opt['dist']:
+                train_sampler.set_epoch(epoch)
 
-            #### training
-            model.feed_data(train_data)
+            print("Starting epoch")
 
-            #### update learning rate
-            model.update_learning_rate(current_step, warmup_iter=opt['train']['warmup_iter'])
+            timerData.tick()
+            for _, train_data in enumerate(train_loader):
+                timerData.tock()
+                current_step += 1
+                if current_step > total_iters:
+                    break
 
-            try:
-                nll = model.optimize_parameters(current_step)
-            except RuntimeError as e:
-                print("Skipping ERROR caught in nll = model.optimize_parameters(current_step): ")
-                print(e)
+                # FIXME: remove it
+                if current_step > 125:
+                    print("break")
+                    break
 
-            if nll is None:
-                nll = 0
+                #### training
+                model.feed_data(train_data)
 
-            #### log
-            def eta(t_iter):
-                return (t_iter * (opt['train']['niter'] - current_step)) / 3600
+                #### update learning rate
+                model.update_learning_rate(current_step, warmup_iter=opt['train']['warmup_iter'])
 
-            if current_step % opt['logger']['print_freq'] == 0 and rank <= 0:
-                avg_time = timer.get_average_and_reset()
-                avg_data_time = timerData.get_average_and_reset()
-                message = '<epoch:{:3d}, iter:{:8,d}, lr:{:.3e}, t:{:.2e}, td:{:.2e}, eta:{:.2e}, nll:{:.3e}> '.format(
-                    epoch, current_step, model.get_current_learning_rate(), avg_time, avg_data_time,
-                    eta(avg_time), nll)
-                #print(message)
+                try:
+                    nll = model.optimize_parameters(current_step)
+                except RuntimeError as e:
+                    print("Skipping ERROR caught in nll = model.optimize_parameters(current_step): ")
+                    print(e)
 
-                timer.tick()
-                if opt['use_tb_logger'] and 'debug' not in opt['name']:
-                    tb_logger.add_scalar('train/nll', nll, current_step)
-                    tb_logger.add_scalar('train/lr', model.get_current_learning_rate(), current_step)
-                    tb_logger.add_scalar('time/iteration', timer.get_last_iteration(), current_step)
-                    tb_logger.add_scalar('time/data', timerData.get_last_iteration(), current_step)
-                    tb_logger.add_scalar('time/eta', eta(timer.get_last_iteration()), current_step)
-                    for k, v in model.get_current_log().items():
-                        tb_logger.add_scalar(k, v, current_step)
+                if nll is None:
+                    nll = 0
 
-                if rank <= 0:
-                    logger.info(message)
-                    sys.stdout.flush()
+                #### log
+                def eta(t_iter):
+                    return (t_iter * (opt['train']['niter'] - current_step)) / 3600
 
-            # validation
-            if current_step % opt['train']['val_freq'] == 0 and rank <= 0:
-                logger.info('Saving models and training states.')
-                model.save(current_step)
-                model.save_training_state(epoch, current_step)
+                if current_step % opt['logger']['print_freq'] == 0 and rank <= 0:
+                    avg_time = timer.get_average_and_reset()
+                    avg_data_time = timerData.get_average_and_reset()
+                    message = '<epoch:{:3d}, iter:{:8,d}, lr:{:.3e}, t:{:.2e}, td:{:.2e}, eta:{:.2e}, nll:{:.3e}> '.format(
+                        epoch, current_step, model.get_current_learning_rate(), avg_time, avg_data_time,
+                        eta(avg_time), nll)
+                    #print(message)
 
-                for val_name, val_loader in val_loaders.items():
+                    timer.tick()
+                    if opt['use_tb_logger'] and 'debug' not in opt['name']:
+                        tb_logger.add_scalar('train/nll', nll, current_step)
+                        tb_logger.add_scalar('train/lr', model.get_current_learning_rate(), current_step)
+                        tb_logger.add_scalar('time/iteration', timer.get_last_iteration(), current_step)
+                        tb_logger.add_scalar('time/data', timerData.get_last_iteration(), current_step)
+                        tb_logger.add_scalar('time/eta', eta(timer.get_last_iteration()), current_step)
+                        for k, v in model.get_current_log().items():
+                            tb_logger.add_scalar(k, v, current_step)
 
-                    def compute_metric_SRFlow_validation():
-                        avg_psnr = 0.0
-                        idx = 0
-                        nlls = []
-                        for val_data in val_loader:
-                            idx += 1
-                            model.feed_data(val_data)
-                            nll = model.test()
+                    if rank <= 0:
+                        logger.info(message)
+                        sys.stdout.flush()
 
-                            if nll is None:
-                                nll = 0
+                # validation
+                if current_step % opt['train']['val_freq'] == 0 and rank <= 0:
+                    logger.info('Saving models and training states.')
+                    model.save(current_step)
+                    model.save_training_state(epoch, current_step)
 
-                            nlls.append(nll)
-                            visuals = model.get_current_visuals()
-                            n_samples = 1   #model.n_sample
-                            sr_img = None
+                    for val_name, val_loader in val_loaders.items():
 
-                            if hasattr(model, 'heats'):
-                                sr_img = util.tensor2img(visuals['SR', model.heats[-1], n_samples])  # uint8
-                            else:
-                                sr_img = util.tensor2img(visuals['SR'])  # uint8
-                            assert sr_img is not None
+                        def compute_metric_SRFlow_validation():
+                            avg_psnr = 0.0
+                            idx = 0
+                            nlls = []
+                            for val_data in val_loader:
+                                idx += 1
+                                model.feed_data(val_data)
+                                nll = model.test()
 
-                            # calculate PSNR
-                            gt_img = util.tensor2img(visuals['GT'])  # uint8
-                            crop_size = opt['scale']
-                            gt_img = gt_img / 255.
-                            sr_img = sr_img / 255.
-                            cropped_sr_img = sr_img[crop_size:-crop_size, crop_size:-crop_size, :]
-                            cropped_gt_img = gt_img[crop_size:-crop_size, crop_size:-crop_size, :]
-                            avg_psnr += util.calculate_psnr(cropped_sr_img * 255, cropped_gt_img * 255)
+                                if nll is None:
+                                    nll = 0
 
-                        avg_psnr = avg_psnr / idx
-                        avg_nll = sum(nlls) / len(nlls)
+                                nlls.append(nll)
+                                visuals = model.get_current_visuals()
+                                n_samples = 1   #model.n_sample
+                                sr_img = None
 
-                        # log
-                        logger.info('# Validation # PSNR: {:.4e}'.format(avg_psnr))
-                        #logger_val = logging.getLogger('val')  # validation logger
-                        logger.info('<epoch:{:3d}, iter:{:8,d}> psnr: {:.4e}'.format(
-                            epoch, current_step, avg_psnr))
+                                if hasattr(model, 'heats'):
+                                    sr_img = util.tensor2img(visuals['SR', model.heats[-1], n_samples])  # uint8
+                                else:
+                                    sr_img = util.tensor2img(visuals['SR'])  # uint8
+                                assert sr_img is not None
 
-                        # tensorboard logger
-                        if opt['use_tb_logger'] and 'debug' not in opt['name']:
-                            tb_logger.add_scalar('psnr/{}'.format(val_name), avg_psnr, current_step)
-                            tb_logger.add_scalar('nll/{}'.format(val_name), avg_nll, current_step)
-
-                    def save_imgs_SRFlow_validation():
-                        n_samples = 1
-                        for val_data in val_loader:
-                            visuals = OrderedDict()
-                            for heat in opt['val']['heats']:
-                                sr_t = model.get_sr(lq=val_data['LQ'], heat=heat)[0]
-                                sr = torch.clamp(sr_t, 0, 1).detach().float().cpu()
-                                # Assuming that there is only one sample per LR
-                                # TODO: Add more samples per heat?
-                                visuals[('SR', heat, 0)] = sr
-
-                            visuals['LQ'] = val_data['LQ'].detach()[0].float().cpu()
-
-                            sr_img = None
-                            # Save SR images for reference
-                            img_name = os.path.splitext(os.path.basename(val_data['LQ_path'][0]))[0]
-                            img_dir = os.path.join(opt['datasets'][val_name]['output_val_images'],
-                                                    val_name,
-                                                    img_name,
-                                                    str(current_step))
-                            util.mkdir(img_dir)
-
-                            if hasattr(model, 'heats'):
-                                for heat in model.heats:
-                                    for i in range(n_samples):
-                                        sr_img = util.tensor2img(visuals['SR', heat, i])  # uint8
-                                        save_img_path = os.path.join(img_dir,
-                                                                    '{:s}_{:09d}_h{:03d}_s{:d}.png'.format(img_name,
-                                                                                                            current_step,
-                                                                                                            int(heat * 100), i))
-                                        util.save_img(sr_img, save_img_path)
-
-                            else:
-                                sr_img = util.tensor2img(visuals['SR'])  # uint8
-                                save_img_path = os.path.join(img_dir,
-                                                            '{:s}_{:d}.png'.format(img_name, current_step))
-                                util.save_img(sr_img, save_img_path)
-
-                    def SRFlow_validation():
-                        if opt['datasets'][val_name]['compute_metrics']:
-                            compute_metric_SRFlow_validation()
-                        else:
-                            save_imgs_SRFlow_validation()
-
-                    def SR_validation():
-                        avg_psnr = 0.0
-                        idx = 0
-                        for val_data in val_loader:
-                            idx += 1
-                            model.feed_data(val_data)
-                            model.test()
-
-                            visuals = model.get_current_visuals()
-                            sr_img = util.tensor2img(visuals['SR'])  # uint8
-                            gt_img = util.tensor2img(visuals['GT'])  # uint8
-                            lq_img = util.tensor2img(visuals['LQ'])  # uint8
-
-                            # Save SR images for reference
-                            if opt['datasets'][val_name]['save_output_img']:
-                                img_name = os.path.splitext(os.path.basename(val_data['LQ_path'][0]))[0]
-                                img_dir = os.path.join(opt['datasets'][val_name]['output_val_images'], val_name, img_name)
-                                util.mkdir(img_dir)
-                                save_img_path = os.path.join(img_dir,
-                                                            '{:s}_{:d}.png'.format(img_name, current_step))
-                                util.save_img(sr_img, save_img_path)
-
-                            # calculate LPIPS and PSNR
-                            if opt['datasets'][val_name]['compute_metrics']:
+                                # calculate PSNR
+                                gt_img = util.tensor2img(visuals['GT'])  # uint8
                                 crop_size = opt['scale']
-                                #lpips_score = util.calc_lpips(lpips_metric_model, visuals['GT'], visuals['SR'])
                                 gt_img = gt_img / 255.
                                 sr_img = sr_img / 255.
                                 cropped_sr_img = sr_img[crop_size:-crop_size, crop_size:-crop_size, :]
                                 cropped_gt_img = gt_img[crop_size:-crop_size, crop_size:-crop_size, :]
                                 avg_psnr += util.calculate_psnr(cropped_sr_img * 255, cropped_gt_img * 255)
 
-                        if opt['datasets'][val_name]['compute_metrics']:
                             avg_psnr = avg_psnr / idx
+                            avg_nll = sum(nlls) / len(nlls)
+
                             # log
                             logger.info('# Validation # PSNR: {:.4e}'.format(avg_psnr))
                             #logger_val = logging.getLogger('val')  # validation logger
@@ -402,16 +327,110 @@ def main():
                             # tensorboard logger
                             if opt['use_tb_logger'] and 'debug' not in opt['name']:
                                 tb_logger.add_scalar('psnr/{}'.format(val_name), avg_psnr, current_step)
+                                tb_logger.add_scalar('nll/{}'.format(val_name), avg_nll, current_step)
 
-                    if opt['model'] == "SR":
-                        SR_validation()
-                    elif opt['model'] == "SRFlow":
-                        SRFlow_validation()
+                        def save_imgs_SRFlow_validation():
+                            n_samples = 1
+                            for val_data in val_loader:
+                                visuals = OrderedDict()
+                                for heat in opt['val']['heats']:
+                                    sr_t = model.get_sr(lq=val_data['LQ'], heat=heat)[0]
+                                    sr = torch.clamp(sr_t, 0, 1).detach().float().cpu()
+                                    # Assuming that there is only one sample per LR
+                                    # TODO: Add more samples per heat?
+                                    visuals[('SR', heat, 0)] = sr
 
-                    tb_logger.flush()
-                    tb_logger.flush()
+                                visuals['LQ'] = val_data['LQ'].detach()[0].float().cpu()
 
-            timerData.tick()
+                                sr_img = None
+                                # Save SR images for reference
+                                img_name = os.path.splitext(os.path.basename(val_data['LQ_path'][0]))[0]
+                                img_dir = os.path.join(opt['datasets'][val_name]['output_val_images'],
+                                                        val_name,
+                                                        img_name,
+                                                        str(current_step))
+                                util.mkdir(img_dir)
+
+                                if hasattr(model, 'heats'):
+                                    for heat in model.heats:
+                                        for i in range(n_samples):
+                                            sr_img = util.tensor2img(visuals['SR', heat, i])  # uint8
+                                            save_img_path = os.path.join(img_dir,
+                                                                        '{:s}_{:09d}_h{:03d}_s{:d}.png'.format(img_name,
+                                                                                                                current_step,
+                                                                                                                int(heat * 100), i))
+                                            util.save_img(sr_img, save_img_path)
+
+                                else:
+                                    sr_img = util.tensor2img(visuals['SR'])  # uint8
+                                    save_img_path = os.path.join(img_dir,
+                                                                '{:s}_{:d}.png'.format(img_name, current_step))
+                                    util.save_img(sr_img, save_img_path)
+
+                        def SRFlow_validation():
+                            if opt['datasets'][val_name]['compute_metrics']:
+                                compute_metric_SRFlow_validation()
+                            else:
+                                save_imgs_SRFlow_validation()
+
+                        def SR_validation():
+                            avg_psnr = 0.0
+                            idx = 0
+                            for val_data in val_loader:
+                                idx += 1
+                                model.feed_data(val_data)
+                                model.test()
+
+                                visuals = model.get_current_visuals()
+                                sr_img = util.tensor2img(visuals['SR'])  # uint8
+                                gt_img = util.tensor2img(visuals['GT'])  # uint8
+                                lq_img = util.tensor2img(visuals['LQ'])  # uint8
+
+                                # Save SR images for reference
+                                if opt['datasets'][val_name]['save_output_img']:
+                                    img_name = os.path.splitext(os.path.basename(val_data['LQ_path'][0]))[0]
+                                    img_dir = os.path.join(opt['datasets'][val_name]['output_val_images'], val_name, img_name)
+                                    util.mkdir(img_dir)
+                                    save_img_path = os.path.join(img_dir,
+                                                                '{:s}_{:d}.png'.format(img_name, current_step))
+                                    util.save_img(sr_img, save_img_path)
+
+                                # calculate LPIPS and PSNR
+                                if opt['datasets'][val_name]['compute_metrics']:
+                                    crop_size = opt['scale']
+                                    #lpips_score = util.calc_lpips(lpips_metric_model, visuals['GT'], visuals['SR'])
+                                    gt_img = gt_img / 255.
+                                    sr_img = sr_img / 255.
+                                    cropped_sr_img = sr_img[crop_size:-crop_size, crop_size:-crop_size, :]
+                                    cropped_gt_img = gt_img[crop_size:-crop_size, crop_size:-crop_size, :]
+                                    avg_psnr += util.calculate_psnr(cropped_sr_img * 255, cropped_gt_img * 255)
+
+                            if opt['datasets'][val_name]['compute_metrics']:
+                                avg_psnr = avg_psnr / idx
+                                # log
+                                logger.info('# Validation # PSNR: {:.4e}'.format(avg_psnr))
+                                #logger_val = logging.getLogger('val')  # validation logger
+                                logger.info('<epoch:{:3d}, iter:{:8,d}> psnr: {:.4e}'.format(
+                                    epoch, current_step, avg_psnr))
+
+                                # tensorboard logger
+                                if opt['use_tb_logger'] and 'debug' not in opt['name']:
+                                    tb_logger.add_scalar('psnr/{}'.format(val_name), avg_psnr, current_step)
+
+                        if opt['model'] == "SR":
+                            SR_validation()
+                        elif opt['model'] == "SRFlow":
+                            SRFlow_validation()
+
+                        tb_logger.flush()
+                        tb_logger.flush()
+
+                timerData.tick()
+
+                prof.step()
+                print("tick")
+
+    print(current_step)
 
     with open(os.path.join(opt['path']['root'], "TRAIN_DONE"), 'w') as f:
         f.write("TRAIN_DONE")
