@@ -35,8 +35,7 @@ class SRFlowModel(BaseModel):
 
         self.heats = opt['val']['heats']
         self.n_sample = opt['val']['n_sample']
-        self.hr_size = opt_get(opt, ['datasets', 'train', 'center_crop_hr_size'])
-        self.hr_size = 160 if self.hr_size is None else self.hr_size
+        self.hr_size = opt_get(opt, ['datasets', 'train', 'GT_size'])
         self.lr_size = self.hr_size // opt['scale']
 
         if opt['dist']:

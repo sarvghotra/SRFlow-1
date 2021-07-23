@@ -38,6 +38,7 @@ class SRFlowNet(nn.Module):
         hidden_channels = opt_get(opt, ['network_G', 'flow', 'hidden_channels'])
         hidden_channels = hidden_channels or 64
         self.RRDB_training = True  # Default is true
+        self.hr_size = opt['train']['GT_size']
 
         train_RRDB_delay = opt_get(self.opt, ['network_G', 'train_RRDB_delay'])
         set_RRDB_to_train = False
@@ -45,7 +46,7 @@ class SRFlowNet(nn.Module):
             self.set_rrdb_training(True)
 
         self.flowUpsamplerNet = \
-            FlowUpsamplerNet((160, 160, 3), hidden_channels, K,
+            FlowUpsamplerNet((self.hr_size, self.hr_size, 3), hidden_channels, K,
                              flow_coupling=opt['network_G']['flow']['coupling'], opt=opt)
         self.i = 0
 
