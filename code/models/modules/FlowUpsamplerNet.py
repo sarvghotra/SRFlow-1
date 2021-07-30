@@ -109,10 +109,11 @@ class FlowUpsamplerNet(nn.Module):
         else:
             self.f = f_conv2d_bias(affineInCh, 2 * 3 * 64)
 
+        self.hr_size = opt['train']['GT_size']
         self.H = H
         self.W = W
-        self.scaleH = 160 / H
-        self.scaleW = 160 / W
+        self.scaleH = self.hr_size / H
+        self.scaleW = self.hr_size / W
 
     def get_n_rrdb_channels(self, opt, opt_get):
         blocks = opt_get(opt, ['network_G', 'flow', 'stackRRDB', 'blocks'])
@@ -126,7 +127,7 @@ class FlowUpsamplerNet(nn.Module):
             condAff['in_channels_rrdb'] = n_conditinal_channels
 
         for k in range(K):
-            position_name = get_position_name(H, self.opt['scale'])
+            position_name = self.get_position_name(H, self.opt['scale'])
             if normOpt: normOpt['position'] = position_name
 
             self.layers.append(
@@ -152,7 +153,7 @@ class FlowUpsamplerNet(nn.Module):
         if opt_get(opt, ['network_G', 'flow', 'split', 'enable']) and L < levels - correction:
             logs_eps = opt_get(opt, ['network_G', 'flow', 'split', 'logs_eps']) or 0
             consume_ratio = opt_get(opt, ['network_G', 'flow', 'split', 'consume_ratio']) or 0.5
-            position_name = get_position_name(H, self.opt['scale'])
+            position_name = self.get_position_name(H, self.opt['scale'])
             position = position_name if opt_get(opt, ['network_G', 'flow', 'split', 'conditional']) else None
             cond_channels = opt_get(opt, ['network_G', 'flow', 'split', 'cond_channels'])
             cond_channels = 0 if cond_channels is None else cond_channels
@@ -227,7 +228,7 @@ class FlowUpsamplerNet(nn.Module):
 
         for layer, shape in zip(self.layers, self.output_shapes):
             size = shape[2]
-            level = int(np.log(160 / size) / np.log(2))
+            level = int(np.log(self.hr_size / size) / np.log(2))
 
             if level > 0 and level not in level_conditionals.keys():
                 level_conditionals[level] = rrdbResults[self.levelToName[level]]
@@ -277,9 +278,9 @@ class FlowUpsamplerNet(nn.Module):
 
         for layer, shape in zip(reversed(self.layers), reversed(self.output_shapes)):
             size = shape[2]
-            level = int(np.log(160 / size) / np.log(2))
+            level = int(np.log(self.hr_size / size) / np.log(2))
             # size = fl_fea.shape[2]
-            # level = int(np.log(160 / size) / np.log(2))
+            # level = int(np.log(self.hr_size / size) / np.log(2))
 
             if isinstance(layer, Split2d):
                 fl_fea, logdet = self.forward_split2d_reverse(eps_std, epses, fl_fea, layer,
@@ -303,7 +304,7 @@ class FlowUpsamplerNet(nn.Module):
         return fl_fea, logdet
 
 
-def get_position_name(H, scale):
-    downscale_factor = 160 // H
-    position_name = 'fea_up{}'.format(scale / downscale_factor)
-    return position_name
+    def get_position_name(self, H, scale):
+        downscale_factor = self.hr_size // H
+        position_name = 'fea_up{}'.format(scale / downscale_factor)
+        return position_name
