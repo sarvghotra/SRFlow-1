@@ -1,3 +1,4 @@
+import imageio
 import os
 import subprocess
 import torch.utils.data as data
@@ -7,6 +8,11 @@ import torch
 import random
 import skimage
 import math
+import lmdb
+import pyarrow as pa
+from PIL import Image
+import six
+import cv2
 
 from data import utils
 from data.LRHR_PKL_dataset import random_flip, \
@@ -24,7 +30,6 @@ class LRHRDataset(data.Dataset):
 
         hr_file_path = opt["dataroot_GT"]
         lr_file_path = opt["dataroot_LQ"]
-        y_labels_file_path = opt['dataroot_y_labels']
 
         gpu = True
         self.augment = opt["augment"] if "augment" in opt.keys() else False
@@ -37,7 +42,17 @@ class LRHRDataset(data.Dataset):
             self.lr_images = utils.get_paths_from_images(lr_file_path)
             print("{} Loaded {} LR images".format(self.phase, len(self.lr_images)))
 
-        self.hr_images = utils.get_paths_from_images(hr_file_path)
+        self.hr_env = None
+        if opt['env'] != 'lmdb':
+            self.hr_images = utils.get_paths_from_images(hr_file_path)
+            self.length = len(self.hr_images)
+            print("{} Loaded {} HR images".format(self.phase, len(self.hr_images)))
+        else:
+            idx_file = os.path.join(os.path.split(hr_file_path)[0], 'train_images_idx.txt')
+            self.length = 0
+            with open(idx_file, 'r') as fi:
+                for _ in fi:
+                    self.length += 1
 
         #min_val_hr = np.min([i.min() for i in self.hr_images[:20]])
         #max_val_hr = np.max([i.max() for i in self.hr_images[:20]])
@@ -50,7 +65,6 @@ class LRHRDataset(data.Dataset):
         #      format(len(self.hr_images), min_val_hr, max_val_hr, t, hr_file_path))
         #print("Loaded {} LR images with [{:.2f}, {:.2f}] in {:.2f}s from {}".
         #      format(len(self.lr_images), min_val_lr, max_val_lr, t, lr_file_path))
-        print("{} Loaded {} HR images".format(self.phase, len(self.hr_images)))
 
         self.gpu = gpu
         self.rand_gauss_var = opt["gauss_noise_var"]
@@ -58,9 +72,13 @@ class LRHRDataset(data.Dataset):
 
         self.measures = None
         self.i = 0
+        self.t_read = []
+        self.imgs_path = []
+        self.t_proc = []
+        self.times = []
 
     def __len__(self):
-        return len(self.hr_images)
+        return self.length
 
     def _lr_img_from_hr(self, hr):
         # Bicubic downsample hr
@@ -70,11 +88,40 @@ class LRHRDataset(data.Dataset):
         lr = utils.imresize(hr, output_shape=(rescale_h, rescale_w))
         return lr
 
-    def _get_hr_lr_img(self, item):
-        # Reads image(s) from storage
-        hr_path = self.hr_images[item]
-        hr = utils.img_loader(hr_path)
+    def loads_pyarrow(self, buf):
+        """
+        Args:
+            buf: the output of `dumps`.
+        """
+        return pa.deserialize(buf)
 
+    def _read_hr_img(self, item):
+        # Reads image(s) from storage
+        if self.hr_env is not None:
+            with self.hr_env.begin(write=False) as txn:
+                byteflow = txn.get(self.keys[item])
+
+            unpacked = self.loads_pyarrow(byteflow)
+
+            imgbuf = unpacked
+            buf = six.BytesIO()
+            buf.write(imgbuf)
+            buf.seek(0)
+            #hr = Image.open(buf).convert('RGB')
+            #hr = cv2.imdecode(buf, cv2.IMREAD_UNCHANGED)
+            #hr = cv2.cvtColor(hr, cv2.COLOR_BGR2RGB)
+            hr = imageio.imread(buf)
+            if len(hr.shape) == 2:
+                hr = np.stack((hr,) * 3, axis=-1)
+                hr = hr[:, :, :3]
+            hr_path = str(self.keys[item])
+        else:
+            hr_path = self.hr_images[item]
+            hr = utils.img_loader(hr_path, lib='cv')
+        return hr, hr_path
+
+    def _get_hr_lr_img(self, item, tries=0):
+        hr, hr_path = self._read_hr_img(item)
         # make hr shape multiple of scale
         h, w = hr.shape[:2]
         rescale_h = h // (self.scale * 2)
@@ -99,8 +146,26 @@ class LRHRDataset(data.Dataset):
     def rgb(self, t):
         return (np.clip((t[0] if len(t.shape) == 4 else t).detach().cpu().numpy().transpose([1, 2, 0]), 0, 1) * 255).astype(np.uint8)
 
+    def _init_lmdb(self):
+        hr_file_path = self.opt['dataroot_GT']
+        self.hr_env = lmdb.open(hr_file_path, subdir=os.path.isdir(hr_file_path),
+                             readonly=True, lock=False,
+                             readahead=False, meminit=False)
+        with self.hr_env.begin(write=False) as txn:
+            # self.length = txn.stat()['entries'] - 1
+            # self.length = self.loads_pyarrow(txn.get(b'__len__'))
+            # self.keys = umsgpack.unpackb(txn.get(b'__keys__'))
+            self.keys = self.loads_pyarrow(txn.get(b'__keys__'))
+
     def __getitem__(self, item):
+        if self.opt['env'] == 'lmdb' and self.hr_env is None:
+            self._init_lmdb()
+        #st = time.time()
         hr, lr, path = self._get_hr_lr_img(item)
+        #read_time = time.time() - st
+        #self.t_read.append(time.time() - st)
+
+        proc_st = time.time()
 
         if self.scale == None:
             self.scale = hr.shape[1] // lr.shape[1]
@@ -147,7 +212,23 @@ class LRHRDataset(data.Dataset):
         lr = self.to_tensor(lr)   #torch.Tensor(lr)
 
 
+        #t_proc = time.time() - proc_st
+
+        self.i += 1
+        if self.i % 100 == 0 and False:
+            import statistics
+            print("Read Median: ", statistics.median(self.t_read))
+            print("Read Avg: ", sum(self.t_read)/len(self.t_read))
+            print("Read Highest: ", max(self.t_read))
+
+            print("Proc Median: ", statistics.median(self.t_proc))
+            print("Proc Avg: ", sum(self.t_proc)/len(self.t_proc))
+            print("Proc Highest: ", max(self.t_proc))
+            print()
+
         '''
+        worker_id = torch.utils.data.get_worker_info().id
+
         # FIXME: remove it, temp
         # sanity check
         hr_img = self.rgb(hr)
@@ -158,9 +239,16 @@ class LRHRDataset(data.Dataset):
         save_path = "/tmp/imgs/" + str(item) + "_hr.png"
         utils.save_img(hr_img, save_path)
         print("Saved")
+
+        #total_time = time.time() - st
+        #self.times.append(total_time)
+
+        #if self.i % 8 == 0:
+        #    print("batch time: ", sum(self.times))
+        #    self.times = []
         '''
 
-        return {'LQ': lr, 'GT': hr, 'LQ_path': path, 'GT_path': path}
+        return {'LQ': lr, 'GT': hr, 'LQ_path': path, 'GT_path': path} #, 'read_times': [read_time], 'worker_id': [worker_id], 'proc_times': [t_proc]}
 
     def print_and_reset(self, tag):
         m = self.measures

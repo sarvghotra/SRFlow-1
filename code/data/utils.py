@@ -58,7 +58,7 @@ def read_img(path):
     return img
 
 
-def img_loader(path):
+def img_loader(path, lib='imageio'):
     '''
     Reads image using imageio, extend image to 3 dims if 2,
     and strips dims > 3
@@ -67,7 +67,12 @@ def img_loader(path):
     Return:
         img
     '''
-    img = imageio.imread(path)
+    if lib == 'cv':
+        img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    elif lib == "imageio":
+        img = imageio.imread(path)
+
     if len(img.shape) == 2:
         img = np.stack((img,) * 3, axis=-1)
     img = img[:, :, :3]
