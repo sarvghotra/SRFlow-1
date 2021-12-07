@@ -18,7 +18,7 @@ import os
 from collections import OrderedDict
 import torch
 import torch.nn as nn
-from torch.nn.parallel import DistributedDataParallel
+from torch.nn.parallel import DataParallel, DistributedDataParallel
 import natsort
 import glob
 
@@ -51,6 +51,11 @@ class BaseModel():
 
     def load(self):
         pass
+
+    def count_parameters(self, network):
+        if isinstance(network, DataParallel) or isinstance(network, DistributedDataParallel):
+            network = network.module
+        return sum(p.numel() for p in network.parameters() if p.requires_grad)
 
     def _set_lr(self, lr_groups_l):
         ''' set learning rate for warmup,
@@ -93,6 +98,7 @@ class BaseModel():
         return s, n
 
     def save_network(self, network, network_label, iter_label):
+        '''
         paths = natsort.natsorted(glob.glob(os.path.join(self.opt['path']['models'], "*_{}.pth".format(network_label))),
                                   reverse=True)
         paths = [p for p in paths if
@@ -100,8 +106,9 @@ class BaseModel():
         if len(paths) > 2:
             for path in paths[2:]:
                 os.remove(path)
+        '''
         save_filename = '{}_{}.pth'.format(iter_label, network_label)
-        save_path = os.path.join(self.opt['path']['models'], save_filename)
+        save_path = os.path.join(self.opt['path']['save_models'], save_filename)
         if isinstance(network, nn.DataParallel) or isinstance(network, DistributedDataParallel):
             network = network.module
         state_dict = network.state_dict()
@@ -113,7 +120,9 @@ class BaseModel():
         if isinstance(network, nn.DataParallel) or isinstance(network, DistributedDataParallel):
             network = network.module
         if not (submodule is None or submodule.lower() == 'none'.lower()):
+            print("====== Getting Submodule ======")
             network = network.__getattr__(submodule)
+
         load_net = torch.load(load_path)
         load_net_clean = OrderedDict()  # remove unnecessary 'module.'
         for k, v in load_net.items():

@@ -29,6 +29,7 @@ echo "########################################"
 echo ""
 
 wget --continue http://data.vision.ee.ethz.ch/alugmayr/SRFlow/datasets.zip
+
 unzip datasets.zip
 rm datasets.zip
 

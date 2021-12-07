@@ -63,7 +63,6 @@ def parse(opt_path, is_train=True):
         experiments_root = osp.join(opt['path']['root'], 'experiments', opt['name'])
         opt['path']['experiments_root'] = experiments_root
         opt['path']['models'] = osp.join(experiments_root, 'models')
-        opt['path']['training_state'] = osp.join(experiments_root, 'training_state')
         opt['path']['log'] = experiments_root
         opt['path']['val_images'] = osp.join(experiments_root, 'val_images')
 
@@ -83,6 +82,7 @@ def parse(opt_path, is_train=True):
         opt['network_G']['scale'] = scale
 
     # relative learning rate
+    '''
     if 'train' in opt:
         niter = opt['train']['niter']
         if 'T_period_rel' in opt['train']:
@@ -93,6 +93,9 @@ def parse(opt_path, is_train=True):
             opt['train']['lr_steps'] = [int(x * niter) for x in opt['train']['lr_steps_rel']]
         if 'lr_steps_inverse_rel' in opt['train']:
             opt['train']['lr_steps_inverse'] = [int(x * niter) for x in opt['train']['lr_steps_inverse_rel']]
+        print(opt['train'])
+    '''
+    if 'train' in opt:
         print(opt['train'])
 
     return opt
@@ -132,6 +135,7 @@ def dict_to_nonedict(opt):
 def check_resume(opt, resume_iter):
     '''Check resume states and pretrain_model paths'''
     logger = logging.getLogger('base')
+    '''
     if opt['path']['resume_state']:
         if opt['path'].get('pretrain_model_G', None) is not None or opt['path'].get(
                 'pretrain_model_D', None) is not None:
@@ -144,3 +148,4 @@ def check_resume(opt, resume_iter):
             opt['path']['pretrain_model_D'] = osp.join(opt['path']['models'],
                                                        '{}_D.pth'.format(resume_iter))
             logger.info('Set [pretrain_model_D] to ' + opt['path']['pretrain_model_D'])
+    '''

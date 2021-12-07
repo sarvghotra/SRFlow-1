@@ -48,7 +48,7 @@ class SRModel(BaseModel):
         else:
             self.netG = DataParallel(self.netG)
         # print network
-        self.print_network()
+        #self.print_network()
         self.load()
 
         if self.is_train:
@@ -81,14 +81,17 @@ class SRModel(BaseModel):
             self.optimizers.append(self.optimizer_G)
 
             # schedulers
-            if train_opt['lr_scheme'] == 'MultiStepLR':
+            if train_opt['lr_scheme'] == 'MultiStepLR' or train_opt['lr_scheme'] == 'MultiStepLR_vanilla':
+                scheduler = lr_scheduler.MultiStepLR_Restart if train_opt['lr_scheme'] == 'MultiStepLR' \
+                                                            else lr_scheduler.MultiStepLR_vanilla
                 for optimizer in self.optimizers:
                     self.schedulers.append(
-                        lr_scheduler.MultiStepLR_Restart(optimizer, train_opt['lr_steps'],
-                                                         restarts=train_opt['restarts'],
-                                                         weights=train_opt['restart_weights'],
-                                                         gamma=train_opt['lr_gamma'],
-                                                         clear_state=train_opt['clear_state']))
+                        scheduler(optimizer, train_opt['lr_steps'],
+                                    restarts=train_opt['restarts'],
+                                    weights=train_opt['restart_weights'],
+                                    gamma=train_opt['lr_gamma'],
+                                    clear_state=train_opt['clear_state']))
+
             elif train_opt['lr_scheme'] == 'CosineAnnealingLR_Restart':
                 for optimizer in self.optimizers:
                     self.schedulers.append(
@@ -99,6 +102,7 @@ class SRModel(BaseModel):
                 raise NotImplementedError('MultiStepLR learning rate scheme is enough.')
 
             self.log_dict = OrderedDict()
+            print("No of params in G: ", self.count_parameters(self.netG))
 
     def feed_data(self, data, need_GT=True):
         self.var_L = data['LQ'].to(self.device)  # LQ

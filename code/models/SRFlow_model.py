@@ -35,8 +35,7 @@ class SRFlowModel(BaseModel):
 
         self.heats = opt['val']['heats']
         self.n_sample = opt['val']['n_sample']
-        self.hr_size = opt_get(opt, ['datasets', 'train', 'center_crop_hr_size'])
-        self.hr_size = 160 if self.hr_size is None else self.hr_size
+        self.hr_size = opt_get(opt, ['datasets', 'train', 'GT_size'])
         self.lr_size = self.hr_size // opt['scale']
 
         if opt['dist']:
@@ -52,7 +51,7 @@ class SRFlowModel(BaseModel):
         else:
             self.netG = DataParallel(self.netG)
         # print network
-        self.print_network()
+        #self.print_network()
 
         if opt_get(opt, ['path', 'resume_state'], 1) is not None:
             self.load()
@@ -73,16 +72,20 @@ class SRFlowModel(BaseModel):
         # optimizers
         self.optimizers = []
         wd_G = train_opt['weight_decay_G'] if train_opt['weight_decay_G'] else 0
+        train_RRDB = opt_get(self.opt, ['network_G', 'train_RRDB'])
         optim_params_RRDB = []
         optim_params_other = []
         for k, v in self.netG.named_parameters():  # can optimize for a part of the model
-            print(k, v.requires_grad)
+            #print(k, v.requires_grad)
             if v.requires_grad:
                 if '.RRDB.' in k:
-                    optim_params_RRDB.append(v)
-                    print('opt', k)
+                    if train_RRDB:
+                        optim_params_RRDB.append(v)
+                    elif self.rank < 0:
+                        logger.warning('Params [{:s}] will not optimize.'.format(k))
                 else:
                     optim_params_other.append(v)
+            else:
                 if self.rank <= 0:
                     logger.warning('Params [{:s}] will not optimize.'.format(k))
 
@@ -118,6 +121,8 @@ class SRFlowModel(BaseModel):
         else:
             raise NotImplementedError('MultiStepLR learning rate scheme is enough.')
 
+        print("No of params in G: ", self.count_parameters(self.netG))
+
     def add_optimizer_and_scheduler_RRDB(self, train_opt):
         # optimizers
         assert len(self.optimizers) == 1, self.optimizers
@@ -127,6 +132,7 @@ class SRFlowModel(BaseModel):
                 if '.RRDB.' in k:
                     self.optimizer_G.param_groups[1]['params'].append(v)
         assert len(self.optimizer_G.param_groups[1]['params']) > 0
+        logger.info('Added RRDB to optimizer for learning')
 
     def feed_data(self, data, need_GT=True):
         self.var_L = data['LQ'].to(self.device)  # LQ
@@ -262,15 +268,18 @@ class SRFlowModel(BaseModel):
             logger.info(s)
 
     def load(self):
+        '''
         _, get_resume_model_path = get_resume_paths(self.opt)
         if get_resume_model_path is not None:
             self.load_network(get_resume_model_path, self.netG, strict=True, submodule=None)
             return
+        '''
 
         load_path_G = self.opt['path']['pretrain_model_G']
-        load_submodule = self.opt['path']['load_submodule'] if 'load_submodule' in self.opt['path'].keys() else 'RRDB'
+        load_submodule = self.opt['path'].get('load_submodule', None) #if 'load_submodule' in self.opt['path'].keys() else 'RRDB'
         if load_path_G is not None:
             logger.info('Loading model for G [{:s}] ...'.format(load_path_G))
+            logger.info('Loading submodule {:s} for G  ...'.format(load_submodule))
             self.load_network(load_path_G, self.netG, self.opt['path'].get('strict_load', True),
                               submodule=load_submodule)
 

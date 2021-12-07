@@ -20,6 +20,7 @@ import torch.utils.data as data
 import numpy as np
 import time
 import torch
+import random
 
 import pickle
 
@@ -33,6 +34,7 @@ class LRHR_PKLDataset(data.Dataset):
         self.random_scale_list = [1]
 
         hr_file_path = opt["dataroot_GT"]
+        self.hr_file_p = hr_file_path
         lr_file_path = opt["dataroot_LQ"]
         y_labels_file_path = opt['dataroot_y_labels']
 
@@ -89,7 +91,7 @@ class LRHR_PKLDataset(data.Dataset):
             assert hr.shape[1] == self.scale * lr.shape[1], ('non-fractional ratio', lr.shape, hr.shape)
 
         if self.use_crop:
-            hr, lr = random_crop(hr, lr, self.crop_size, self.scale, self.use_crop)
+            hr, lr = random_crop(hr, lr, self.crop_size, self.scale)
 
         if self.center_crop_hr_size:
             hr, lr = center_crop(hr, self.center_crop_hr_size), center_crop(lr, self.center_crop_hr_size // self.scale)
@@ -103,7 +105,7 @@ class LRHR_PKLDataset(data.Dataset):
         hr = hr / 255.0
         lr = lr / 255.0
 
-        if self.measures is None or np.random.random() < 0.05:
+        if self.measures is None or random.random() < 0.05:
             if self.measures is None:
                 self.measures = {}
             self.measures['hr_means'] = np.mean(hr)
@@ -113,6 +115,8 @@ class LRHR_PKLDataset(data.Dataset):
 
         hr = torch.Tensor(hr)
         lr = torch.Tensor(lr)
+
+        #print(self.hr_file_p, " ", "pkl: ", hr.shape, " ", lr.shape)
 
         # if self.gpu:
         #    hr = hr.cuda()
@@ -130,27 +134,27 @@ class LRHR_PKLDataset(data.Dataset):
 
 
 def random_flip(img, seg):
-    random_choice = np.random.choice([True, False])
+    random_choice = random.choice([True, False])
     img = img if random_choice else np.flip(img, 2).copy()
     seg = seg if random_choice else np.flip(seg, 2).copy()
     return img, seg
 
 
 def random_rotation(img, seg):
-    random_choice = np.random.choice([0, 1, 3])
+    random_choice = random.choice([0, 1, 3])
     img = np.rot90(img, random_choice, axes=(1, 2)).copy()
     seg = np.rot90(seg, random_choice, axes=(1, 2)).copy()
     return img, seg
 
 
-def random_crop(hr, lr, size_hr, scale, random):
+def random_crop(hr, lr, size_hr, scale):
     size_lr = size_hr // scale
 
     size_lr_x = lr.shape[1]
     size_lr_y = lr.shape[2]
 
-    start_x_lr = np.random.randint(low=0, high=(size_lr_x - size_lr) + 1) if size_lr_x > size_lr else 0
-    start_y_lr = np.random.randint(low=0, high=(size_lr_y - size_lr) + 1) if size_lr_y > size_lr else 0
+    start_x_lr = random.randint(0, (size_lr_x - size_lr)) if size_lr_x > size_lr else 0
+    start_y_lr = random.randint(0, (size_lr_y - size_lr)) if size_lr_y > size_lr else 0
 
     # LR Patch
     lr_patch = lr[:, start_x_lr:start_x_lr + size_lr, start_y_lr:start_y_lr + size_lr]
