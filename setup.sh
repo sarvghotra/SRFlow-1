@@ -18,7 +18,7 @@ pip install --upgrade pip        # Update pip
 pip install -r requirements.txt  # Install the exact same packages that we used
 
 # Alternatively you can install globally using pip
-# pip install jupyter torch natsort pyyaml opencv-python torchvision skimage scikit-image tqdm lpips pandas environment_kernels
+# pip install jupyter torch natsort pyyaml opencv-python torchvision scikit-image tqdm lpips pandas environment_kernels 
 
 
 
@@ -28,12 +28,12 @@ echo "Download models, data"
 echo "########################################"
 echo ""
 
-'''
-wget  http://data.vision.ee.ethz.ch/alugmayr/SRFlow/datasets.zip
+wget --continue http://data.vision.ee.ethz.ch/alugmayr/SRFlow/datasets.zip
+
 unzip datasets.zip
 rm datasets.zip
 
-wget  http://data.vision.ee.ethz.ch/alugmayr/SRFlow/pretrained_models.zip
+wget --continue http://data.vision.ee.ethz.ch/alugmayr/SRFlow/pretrained_models.zip
 unzip pretrained_models.zip
 rm pretrained_models.zip
 
@@ -45,4 +45,3 @@ echo "########################################"
 echo ""
 
 ./run_jupyter.sh
-'''
